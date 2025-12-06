@@ -1,35 +1,35 @@
 # ComfyUI Resolution & AR Calculator
 
-A lightweight ComfyUI custom node that converts a **target longest-side resolution + aspect ratio** into exact **width/height** for image generation.
+A lightweight ComfyUI custom node that converts a target longest-side resolution + aspect ratio into exact width/height for image generation.
 
-This node is designed for people who want consistent size control across portrait/landscape formats without doing manual math every time.
+This node is built for creators who want consistent, repeatable size control across portrait/landscape formats without manual math.
 
 ---
 
 ## What this node does
 
 Given:
-
-- a **target longest side** (preset or custom),
-- an **aspect ratio** (portrait or landscape list),
-- and an optional **orientation override**,
+- a target longest side (preset or custom),
+- an aspect ratio (portrait or landscape list),
+- an optional orientation override,
+- and an optional SD-friendly rounding option,
 
 the node outputs:
+- width (INT)
+- height (INT)
+- resolution (STRING), e.g. 1344x1728px
 
-- **width (INT)**
-- **height (INT)**
-- **resolution (STRING)** like: `1344x1728px`
-
-Optionally, it can auto-round to SD-friendly sizes.
+You can wire width/height directly into KSampler.
 
 ---
 
 ## Key Features
 
-### 1. Portrait & Landscape Aspect Ratio Lists
-Aspect ratios are split into two curated dropdowns that match your reference list:
+### 1) Portrait & Landscape Aspect Ratio Lists
 
-**Portrait list**
+Aspect ratios are split into two curated dropdowns that match your reference list.
+
+Portrait list:
 - 1:1 (Perfect Square)
 - 2:3 (Classic Portrait)
 - 3:4 (Golden Ratio)
@@ -43,7 +43,7 @@ Aspect ratios are split into two curated dropdowns that match your reference lis
 - 9:21 (Ultra Tall)
 - 9:32 (Skyline)
 
-**Landscape list**
+Landscape list:
 - 1:1 (Perfect Square)
 - 3:2 (Golden Landscape)
 - 4:3 (Classic Landscape)
@@ -57,111 +57,254 @@ Aspect ratios are split into two curated dropdowns that match your reference lis
 - 21:9 (Epic Ultrawide)
 - 32:9 (Extreme Ultrawide)
 
-You choose which list to use via **Aspect Group**.
+You choose which list to use via:
+- aspect_group: portrait | landscape
+
+Note: ComfyUI inputs aren’t fully dynamic by default, so both dropdowns may be visible even though only one is used based on aspect_group.
 
 ---
 
-### 2. Preset + Custom Longest-Side
-Instead of the confusing `long_side` name, the node uses:
+### 2) Preset + Custom Longest-Side
 
-- **size_mode**
-  - `preset`
-  - `custom`
+To avoid confusion from “long_side”, the node uses:
 
-- **preset_longest_side_px**
-  - e.g., 1000, 2000 (you can extend)
+- size_mode:
+  - preset
+  - custom
 
-- **custom_longest_side_px**
-  - integer field with sensible min/max/step
+- preset_longest_side_px:
+  - e.g. 1000, 2000 (easy to extend)
 
-This provides clarity and flexibility.
+- custom_longest_side_px:
+  - integer field with sane min/max/step
+
+This lets you use quick presets for common workflows or precision control for specific targets.
 
 ---
 
-### 3. Orientation Override
-You can set:
+### 3) Orientation Override
 
-- `auto`
-- `landscape`
-- `portrait`
+Orientation provides an explicit way to force shape behavior:
 
-This acts as a **ratio normalization step**.
+- auto
+- landscape
+- portrait
+
+This works by normalizing the chosen ratio before scaling.
 
 Example:
-- You pick a portrait ratio like `7:9`
-- But set orientation to `landscape`
-- The node will swap it to behave like `9:7` before calculating.
+- You pick 7:9 (a portrait ratio)
+- Set orientation to landscape
+- The node swaps it to behave like 9:7 before calculation
 
-It gives you an easy, explicit way to force output direction.
+This is helpful when you want to reuse the same labeled ratio list but force a consistent direction across a batch.
 
 ---
 
-### 4. Optional Auto Rounding to Multiples of 64
-A toggle:
+### 4) Optional Auto Rounding to Multiples of 64
 
-- **round_to_64**
-  - `on` (default)
-  - `off`
+Toggle:
+- round_to_64: on | off
 
-This rounds both width and height to the nearest multiple of 64.
+When enabled, the node rounds both width and height to the nearest multiple of 64.
 
 ---
 
 ## Why rounding to multiples of 64 helps Stable Diffusion
 
-Stable Diffusion models process images through a **downsampling pipeline** into a smaller latent space.
+Stable Diffusion models generate images through a latent-space pipeline that relies on internal downsampling (commonly by factors of 8).
 
-Most SD architectures effectively expect dimensions that are cleanly divisible by internal scaling steps (commonly 8, and more comfortably 64).
+In practice:
+- widths/heights divisible by 8 are generally safest,
+- multiples of 64 are an even more comfortable standard for:
+  - training alignment,
+  - VRAM predictability,
+  - avoiding edge-case resizing/padding behaviors,
+  - overall workflow reliability.
 
-Rounding to **multiples of 64** is a widely used best practice because:
-
-- It guarantees divisibility by **8**
-- It aligns with common training sizes (e.g., 512, 768, 1024, 1152, 1280…)
-- It often improves:
-  - compositional stability,
-  - memory predictability,
-  - avoidance of edge-case resizing/padding behaviors.
-
-**This is not strictly mandatory**, but it’s an excellent default for consistent results.
+This is not strictly required, but it is a solid best-practice default.
+If you need exact print math or externally-matched dimensions, turn rounding off.
 
 ---
 
 ## Outputs
 
 The node returns:
+1) width (INT)
+2) height (INT)
+3) resolution (STRING)
 
-1. **width (INT)**
-2. **height (INT)**
-3. **resolution (STRING)**
-
-You can wire `width` and `height` directly into:
-
-- `KSampler.width`
-- `KSampler.height`
+Recommended wiring:
+- width  -> KSampler.width
+- height -> KSampler.height
 
 ---
 
 ## How the calculation works
 
-### Step-by-step logic
+1) The node reads an aspect ratio label like:
+   7:9 (Modern Portrait)
 
-1. The node reads an aspect ratio string like:
+2) It extracts the numeric ratio:
+   7:9
 
-   `7:9 (Modern Portrait)`
+3) Orientation override (if set):
+   - landscape forces W >= H
+   - portrait forces H >= W
 
-2. It extracts only the ratio:
-
-   `7:9`
-
-3. It applies orientation override if needed:
-   - If forced to landscape and ratio is portrait, it swaps.
-   - If forced to portrait and ratio is landscape, it swaps.
-
-4. It scales ratio to match the **target longest side**.
-
+4) Scale to match the target longest side:
    Let:
-   - target longest side = `L`
-   - ratio = `w:h`
+   - L = target longest side
+   - ratio = w:h
 
-   Scale factor:
+   scale = L / max(w, h)
 
+   width  = round(w * scale)
+   height = round(h * scale)
+
+5) Optional rounding:
+   width  = nearest multiple of 64
+   height = nearest multiple of 64
+
+6) Format string:
+   "{width}x{height}px"
+
+---
+
+## Installation
+
+### Install with ComfyUI Manager (recommended)
+
+1) Open ComfyUI
+2) Open ComfyUI-Manager
+3) Use Install from URL / Install via Git
+4) Paste your repo URL:
+   https://github.com/YOUR_USERNAME/ComfyUI-Resolution-AR-Node.git
+5) Install
+6) Restart ComfyUI
+
+---
+
+### Manual install via git
+
+From your ComfyUI directory:
+
+1) cd custom_nodes
+2) git clone https://github.com/YOUR_USERNAME/ComfyUI-Resolution-AR-Node.git
+3) Restart ComfyUI
+
+---
+
+## Required file structure
+
+Because this node uses the “Option A” pattern (all code in __init__.py):
+
+ComfyUI/custom_nodes/ComfyUI-Resolution-AR-Node/
+- __init__.py
+- README.md
+
+ComfyUI will import the folder as a module and expects NODE_CLASS_MAPPINGS
+to be available at the top level (in __init__.py).
+
+---
+
+## Where to find the node
+
+After restarting ComfyUI:
+
+- Search for:
+  Resolution & AR Calculator
+
+- Or browse category:
+  Resolution Tools
+
+---
+
+## Usage examples
+
+### Modern portrait batch
+- aspect_group: portrait
+- aspect_ratio_portrait: 7:9 (Modern Portrait)
+- size_mode: preset
+- preset_longest_side_px: 2000
+- round_to_64: on
+
+### Cinematic ultrawide
+- aspect_group: landscape
+- aspect_ratio_landscape: 21:9 (Epic Ultrawide)
+- size_mode: custom
+- custom_longest_side_px: 2500
+- round_to_64: on
+
+### Exact math mode (no SD rounding)
+- round_to_64: off
+
+---
+
+## Customization
+
+### Add more preset sizes
+
+Edit:
+- preset_longest_side_px list
+
+Example:
+- 1000, 1500, 2000, 3000, 4000
+
+---
+
+### Add more aspect ratios
+
+Add strings to:
+- portrait_ratios
+- landscape_ratios
+
+Format:
+- W:H (Label)
+
+---
+
+## Limitations
+
+- The ComfyUI UI may show both portrait and landscape dropdowns even though only one is used based on aspect_group.
+- Rounding can slightly shift the exact longest side target.
+
+---
+
+## Troubleshooting
+
+### “Skip module due to lack of NODE_CLASS_MAPPINGS”
+Make sure __init__.py contains:
+- NODE_CLASS_MAPPINGS = {...}
+
+---
+
+### “__init__.py not found”
+Ensure your custom node folder contains __init__.py.
+
+---
+
+### Node not appearing
+- Restart ComfyUI
+- Check console logs
+- Confirm the folder is directly under:
+  ComfyUI/custom_nodes/
+
+---
+
+## License
+
+Recommended:
+- MIT License
+
+---
+
+## Summary
+
+This node provides:
+- clean aspect ratio selection split by orientation,
+- presets + custom longest-side control,
+- optional SD-friendly rounding to multiples of 64,
+- and direct width/height outputs for seamless KSampler wiring.
+
+It’s designed to reduce friction and make resolution selection fast, consistent, and human-readable.
