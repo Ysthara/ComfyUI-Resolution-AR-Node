@@ -1,5 +1,10 @@
 # __init__.py
-# ComfyUI Resolution & AR Calculator custom node (Option A style)
+# ComfyUI Resolution & AR Calculator (enhanced)
+#
+# Features:
+# 1) Aspect ratios split into Portrait / Landscape dropdowns
+# 2) Preset + Custom numeric longest side
+# 3) Optional rounding to multiples of 64 for SD-friendly sizes
 
 def _parse_ratio(aspect_ratio_str: str):
     """
@@ -9,15 +14,19 @@ def _parse_ratio(aspect_ratio_str: str):
     Returns:
       (7, 9)
     """
-    # Take the first token before a space, e.g. "7:9"
     token = aspect_ratio_str.strip().split(" ")[0]
     w_ratio, h_ratio = map(int, token.split(":"))
     return w_ratio, h_ratio
 
 
+def _round_to_multiple(value: int, base: int):
+    # Round to nearest multiple of `base`, minimum `base`
+    return max(base, int(round(value / base)) * base)
+
+
 class ResolutionAspectCalculator:
     @staticmethod
-    def calculate(longest_side_px, aspect_ratio, orientation):
+    def calculate(longest_side_px: int, aspect_ratio: str, orientation: str):
         w_ratio, h_ratio = _parse_ratio(aspect_ratio)
 
         # Enforce orientation if requested
@@ -32,22 +41,23 @@ class ResolutionAspectCalculator:
         width = round(w_ratio * scale)
         height = round(h_ratio * scale)
 
-        resolution_string = f"{width}x{height}px"
-        return width, height, resolution_string
+        return width, height, w_ratio, h_ratio
 
 
 class ResolutionNode:
     """
     ComfyUI node wrapper.
-    Calculates width/height from:
-      - longest_side_px: sets the LONGEST edge of the final image in pixels
-      - aspect_ratio: "W:H (Name)"
-      - orientation: auto / landscape / portrait
+
+    - Choose Aspect Group (Portrait/Landscape)
+    - Pick ratio from the matching list
+    - Choose longest side using preset or custom
+    - Optionally round dimensions to multiples of 64
     """
 
     @classmethod
     def INPUT_TYPES(cls):
-        aspect_ratios = [
+        # Based on your screenshot list
+        portrait_ratios = [
             "1:1 (Perfect Square)",
             "2:3 (Classic Portrait)",
             "3:4 (Golden Ratio)",
@@ -60,6 +70,10 @@ class ResolutionNode:
             "9:19 (Tall Slim)",
             "9:21 (Ultra Tall)",
             "9:32 (Skyline)",
+        ]
+
+        landscape_ratios = [
+            "1:1 (Perfect Square)",
             "3:2 (Golden Landscape)",
             "4:3 (Classic Landscape)",
             "5:3 (Wide Horizon)",
@@ -77,17 +91,39 @@ class ResolutionNode:
             "required": {
                 "orientation": (["auto", "landscape", "portrait"], {"default": "auto"}),
 
-                # Clearer name than "long_side"
-                # Tooltip may be ignored by some UI builds, but is safe to include.
-                "longest_side_px": (
-                    ["1000", "2000"],
-                    {
-                        "default": "2000",
-                        "tooltip": "Sets the longest edge of the final image in pixels."
-                    }
-                ),
+                # Clearer than "long_side"
+                "size_mode": (["preset", "custom"], {
+                    "default": "preset",
+                    "tooltip": "Use preset longest side or enter a custom value."
+                }),
 
-                "aspect_ratio": (aspect_ratios, {"default": "1:1 (Perfect Square)"}),
+                "preset_longest_side_px": (["1000", "2000"], {
+                    "default": "2000",
+                    "tooltip": "Preset longest-edge sizes in pixels."
+                }),
+
+                # Custom numeric entry (shown alongside presets)
+                "custom_longest_side_px": ("INT", {
+                    "default": 2000,
+                    "min": 256,
+                    "max": 8192,
+                    "step": 64,
+                    "tooltip": "Custom longest edge in pixels (used only if size_mode=custom)."
+                }),
+
+                "aspect_group": (["portrait", "landscape"], {
+                    "default": "portrait",
+                    "tooltip": "Select which aspect ratio list to use."
+                }),
+
+                "aspect_ratio_portrait": (portrait_ratios, {"default": "7:9 (Modern Portrait)"}),
+                "aspect_ratio_landscape": (landscape_ratios, {"default": "16:9 (Panorama)"}),
+
+                # Rounding toggle
+                "round_to_64": (["off", "on"], {
+                    "default": "on",
+                    "tooltip": "Rounds width/height to nearest multiple of 64 for SD-friendly sizes."
+                }),
             }
         }
 
@@ -96,16 +132,41 @@ class ResolutionNode:
     FUNCTION = "process"
     CATEGORY = "Resolution Tools"
 
-    def process(self, orientation, longest_side_px, aspect_ratio):
-        longest_side_px = int(longest_side_px)
+    def process(
+        self,
+        orientation,
+        size_mode,
+        preset_longest_side_px,
+        custom_longest_side_px,
+        aspect_group,
+        aspect_ratio_portrait,
+        aspect_ratio_landscape,
+        round_to_64,
+    ):
+        # Pick longest side
+        if size_mode == "custom":
+            longest_side_px = int(custom_longest_side_px)
+        else:
+            longest_side_px = int(preset_longest_side_px)
 
-        width, height, label = ResolutionAspectCalculator.calculate(
+        # Pick aspect ratio string from chosen group
+        aspect_ratio = aspect_ratio_portrait if aspect_group == "portrait" else aspect_ratio_landscape
+
+        # Base calculation
+        width, height, w_ratio, h_ratio = ResolutionAspectCalculator.calculate(
             longest_side_px=longest_side_px,
             aspect_ratio=aspect_ratio,
             orientation=orientation,
         )
 
-        return (width, height, label)
+        # Optional rounding
+        if round_to_64 == "on":
+            width = _round_to_multiple(width, 64)
+            height = _round_to_multiple(height, 64)
+
+        resolution_string = f"{width}x{height}px"
+
+        return (width, height, resolution_string)
 
 
 NODE_CLASS_MAPPINGS = {
