@@ -47,7 +47,7 @@ This helps you pick consistent sizes for portrait, landscape, square, and ultraw
 1. Open a terminal in your ComfyUI directory.
 2. Run:
 
-   git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+   git clone https://github.com/Ysthara/ComfyUI-Resolution-AR-Node
 
    inside:
 
